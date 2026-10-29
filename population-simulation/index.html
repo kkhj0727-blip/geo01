@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>인구 변천 시뮬레이션</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1f2937;--mute:#6b7280;--line:#e5e7eb;--birth:#2563eb;--death:#dc2626;--pop:#059669;--accent:#4f46e5;
+--s1:#fde68a;--s2:#fdba74;--s3:#a7f3d0;--s4:#bfdbfe;--s5:#ddd6fe}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Malgun Gothic","Noto Sans KR",sans-serif;line-height:1.5}
+header{padding:16px 16px 4px;max-width:1100px;margin:0 auto}
+h1{margin:0;font-size:1.4rem}
+.note{color:var(--mute);font-size:.85rem;margin:4px 0 0}
+main{max-width:1100px;margin:0 auto;padding:8px 16px 32px;display:grid;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card h2{margin:0 0 8px;font-size:1rem}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.preset.on{outline:2px solid var(--accent);background:#eef2ff}
+.ctrls{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 18px}
+.ctrl label{display:flex;justify-content:space-between;font-size:.88rem}
+.ctrl input[type=range]{width:100%}
+.ctrl small{color:var(--mute);font-size:.75rem}
+#timeline{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);position:relative;cursor:pointer}
+#timeline div.seg{display:flex;align-items:center;justify-content:center;font-size:.75rem;white-space:nowrap;overflow:hidden}
+#cursor{position:absolute;top:0;bottom:0;width:2px;background:#111;pointer-events:none}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+canvas{width:100%;height:260px;display:block}
+.legend{display:flex;gap:12px;font-size:.8rem;flex-wrap:wrap;margin-top:4px}
+.legend i{display:inline-block;width:12px;height:3px;vertical-align:middle;margin-right:4px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.stat{background:#f9fafb;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.stat b{display:block;font-size:1.15rem}
+.stat span{font-size:.75rem;color:var(--mute)}
+#stageCard h3{margin:0 0 4px}
+#stageCard ul{margin:6px 0 0;padding-left:20px}
+#log{max-height:180px;overflow:auto;font-size:.88rem;margin:0;padding-left:20px}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:.78rem;margin-left:6px;background:#fef3c7;border:1px solid #fcd34d}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌍 인구 변천 시뮬레이션</h1>
+  <p class="note">※ 개념 이해를 위한 <b>가상 모형</b>입니다. 화면의 숫자는 실제 통계가 아니며, 시간은 "경과 연수"(시작 시점 = 0년)입니다. 실제 국가 수치는 통계 자료로 <span class="tag">확인 필요</span></p>
+</header>
+<main>
+  <section class="card">
+    <h2>① 상황 선택</h2>
+    <div class="row" id="presets"></div>
+    <p class="note" id="presetDesc"></p>
+  </section>
+
+  <section class="card">
+    <h2>② 조건 조절 <small class="note">(바꾸면 처음부터 다시 계산됩니다)</small></h2>
+    <div class="ctrls" id="ctrls"></div>
+  </section>
+
+  <section class="card">
+    <h2>③ 진행 과정</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button class="primary" id="play">▶ 재생</button>
+      <button id="reset">⟲ 처음으로</button>
+      <button id="stepb">◀ 5년</button>
+      <button id="stepf">5년 ▶</button>
+      <label style="font-size:.88rem">속도 <select id="speed"><option value="0.5">느리게</option><option value="1" selected>보통</option><option value="2.5">빠르게</option></select></label>
+      <label style="font-size:.88rem;flex:1;min-width:200px;display:flex;gap:8px;align-items:center">경과 <input type="range" id="slider" min="0" max="60" value="0" style="flex:1"> <b id="yr">0년</b></label>
+    </div>
+    <div id="timeline"><div id="cursor"></div></div>
+    <p class="note">인구 변천 단계(교육용 기준): 막대를 눌러 해당 시점으로 이동할 수 있습니다.</p>
+  </section>
+
+  <section class="card" id="stageCard"></section>
+
+  <section class="card"><div class="stats" id="stats"></div></section>
+
+  <div class="charts">
+    <section class="card"><h2>출생률·사망률</h2><canvas id="cRates"></canvas>
+      <div class="legend"><span><i style="background:var(--birth)"></i>조출생률(‰)</span><span><i style="background:var(--death)"></i>조사망률(‰)</span><span>색칠 = 자연 증가</span></div></section>
+    <section class="card"><h2>총인구 (시작 = 100)</h2><canvas id="cPop"></canvas>
+      <div class="legend"><span><i style="background:var(--pop)"></i>상대 인구</span></div></section>
+    <section class="card"><h2>인구 피라미드 (남녀 동일 가정)</h2><canvas id="cPyr"></canvas>
+      <div class="legend"><span>가로 = 전체 인구 중 비율(%)</span></div></section>
+  </div>
+
+  <section class="card"><h2>단계 변화 기록</h2><ol id="log"></ol></section>
+</main>
+
+<script>
+'use strict';
+/* ---------- 모형 ---------- */
+const STEP = 5, N = 61, AG = 20;          // 5년 간격, 0~300년, 5세 단위 20개 연령집단
+const STAGES = {
+  1:{name:'1단계 · 고출생 고사망',color:'--s1',
+     feat:['출생률과 사망률이 모두 높아 인구가 거의 늘지 않음','피라미드형(어린이 비중이 매우 큼)'],
+     cause:'의료·위생이 낮고 식량이 불안정하며, 많은 자녀를 낳는 것이 일반적인 사회',
+     ex:'산업화 이전 사회'},
+  2:{name:'2단계 · 사망률 하락 (인구 급증)',color:'--s2',
+     feat:['사망률이 먼저 떨어지고 출생률은 높게 유지되어 자연 증가율이 가장 커짐','피라미드형, 어린 층이 더 두터워짐'],
+     cause:'의료·위생 개선, 식량 증산 → 영유아 사망 감소',
+     ex:'일부 개발도상국(어느 나라가 해당하는지는 최신 자료로 확인 필요)'},
+  3:{name:'3단계 · 출생률 하락 (증가 둔화)',color:'--s3',
+     feat:['출생률이 빠르게 떨어져 증가 속도가 느려짐','종형으로 이행'],
+     cause:'도시화·교육 확대, 여성의 사회 진출, 가족계획',
+     ex:'신흥 공업국 등(교과서·최신 자료로 확인 필요)'},
+  4:{name:'4단계 · 저출생 저사망',color:'--s4',
+     feat:['출생률과 사망률이 모두 낮아 인구 증가가 정체','종형, 노년층 비중이 점차 증가'],
+     cause:'소가족 규범 정착, 높은 의료 수준',
+     ex:'선진국(교과서 확인 필요)'},
+  5:{name:'5단계 · 초저출생 고령화',color:'--s5',
+     feat:['출생률이 사망률 수준이거나 그 아래로 내려가 자연 감소 가능','방추형(항아리형): 노년층 비중이 큼'],
+     cause:'결혼·출산 지연, 양육·주거 부담, 기대수명 증가',
+     ex:'일부 선진국(교과서·최신 자료로 확인 필요)'}
+};
+
+const PARAMS = [
+  {k:'deathYear',label:'사망률 하락 시점',min:10,max:200,step:5,unit:'년',hint:'의료·위생이 개선되기 시작하는 시기'},
+  {k:'birthYear',label:'출생률 하락 시점',min:30,max:280,step:5,unit:'년',hint:'가족 규모 축소가 확산되는 시기'},
+  {k:'speed',label:'변화 속도(작을수록 급격)',min:4,max:30,step:1,unit:'',hint:'전환이 진행되는 폭'},
+  {k:'med',label:'의료·위생 수준',min:0.5,max:1.6,step:0.1,unit:'배',hint:'높을수록 사망률이 더 낮아짐'},
+  {k:'low',label:'하락 후 출생률(조출생률)',min:5,max:20,step:1,unit:'‰',hint:'모형 값 (실제 수치 아님)'},
+  {k:'policy',label:'출산 정책',min:-1,max:1,step:1,unit:'',hint:'−1 억제 / 0 없음 / +1 장려',fmt:v=>['억제','없음','장려'][v+1]}
+];
+const PRESETS = [
+  {id:'adv',name:'선진국형(점진적)',desc:'사망률이 먼저 떨어지고, 출생률은 한참 뒤 완만하게 떨어지는 전형적 경로(가상).',
+   p:{deathYear:70,birthYear:140,speed:22,med:1,low:11,policy:0}},
+  {id:'fast',name:'급속 변화형(압축 성장)',desc:'사망률·출생률 하락이 짧은 기간에 연달아 일어나 인구가 단기간에 크게 늘었다가 고령화(가상).',
+   p:{deathYear:40,birthYear:75,speed:7,med:1.2,low:11,policy:-1}},
+  {id:'stuck',name:'저개발 지속형',desc:'의료 개선이 늦고 출생률 하락도 늦어 오랫동안 초기 단계에 머무는 경우(가상).',
+   p:{deathYear:130,birthYear:230,speed:22,med:0.7,low:14,policy:0}},
+  {id:'low',name:'초저출생형',desc:'출생률이 사망률 아래로 내려가 인구가 줄어드는 경우(가상).',
+   p:{deathYear:60,birthYear:100,speed:12,med:1.3,low:6,policy:0}}
+];
+let P = {...PRESETS[0].p};
+
+const hz = (a,M)=>Math.min(M*(0.045*Math.exp(-a/4)+0.012+0.00022*Math.exp(0.085*a)),2.5);
+const logi = (t,c,w)=>1/(1+Math.exp(-(t-c)/w));
+function Mof(t,p){const hi=1.55, lo=0.14/p.med; return hi+(lo-hi)*logi(t,p.deathYear,p.speed*0.9);}
+function Bof(t,p){
+  const hi=40, lo=Math.max(3, p.low + 3*p.policy);
+  const w = p.speed*(p.policy<0?0.8:1);
+  return hi+(lo-hi)*logi(t,p.birthYear,w);
+}
+function advance(pop,cbr,M){
+  const tot=pop.reduce((a,b)=>a+b,0), births=cbr/1000*tot*STEP, nx=new Array(AG).fill(0);
+  nx[0]=births*Math.exp(-STEP/2*hz(2.5,M));
+  for(let g=1;g<AG;g++) nx[g]=pop[g-1]*Math.exp(-STEP*hz((g-1)*5+2.5,M));
+  nx[AG-1]+=pop[AG-1]*Math.exp(-STEP*hz((AG-1)*5+2.5,M));
+  const tn=nx.reduce((a,b)=>a+b,0), deaths=tot+births-tn;
+  return {nx,births,deaths,tot,tn};
+}
+function simulate(p){
+  let pop=new Array(AG).fill(1);                     // 초기 구조는 예열(조건 고정)으로 안정화
+  for(let i=0;i<60;i++) pop=advance(pop,Bof(-1e3,p),Mof(-1e3,p)).nx;
+  const base=pop.reduce((a,b)=>a+b,0), out=[];
+  for(let k=0;k<N;k++){
+    const t=k*STEP, cbr=Bof(t,p), M=Mof(t,p), r=advance(pop,cbr,M);
+    const tot=pop.reduce((a,b)=>a+b,0), avg=(r.tot+r.tn)/2;
+    const cdr=r.deaths/STEP/avg*1000;
+    const old=pop.slice(13).reduce((a,b)=>a+b,0)/tot, young=pop.slice(0,3).reduce((a,b)=>a+b,0)/tot;
+    out.push({t,pop:pop.slice(),cbr:r.births/STEP/avg*1000,cdr,M,total:tot/base*100,old,young,ni:r.births/STEP/avg*1000-cdr});
+    pop=r.nx;
+  }
+  out.forEach(s=>s.stage=stageOf(s));
+  return out;
+}
+function stageOf(s){                                  // 교육용 판정 기준(임의 설정)
+  if(s.old>=0.20||s.ni<0) return 5;
+  if(s.M>1.2) return 1;
+  if(s.cbr>=34) return 2;
+  if(s.cbr>=17) return 3;
+  return 4;
+}
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+let sim=[], k=0, playing=false, last=0, acc=0, presetId='adv';
+
+function buildUI(){
+  $('presets').innerHTML=PRESETS.map(x=>`<button class="preset" data-id="${x.id}">${x.name}</button>`).join('');
+  $('presets').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const pr=PRESETS.find(x=>x.id===b.dataset.id); presetId=pr.id; P={...pr.p}; syncCtrls(); recompute(true);});
+  $('ctrls').innerHTML=PARAMS.map(q=>`<div class="ctrl"><label>${q.label}<b id="v_${q.k}"></b></label>
+    <input type="range" id="r_${q.k}" min="${q.min}" max="${q.max}" step="${q.step}"><small>${q.hint}</small></div>`).join('');
+  PARAMS.forEach(q=>$('r_'+q.k).oninput=e=>{P[q.k]=+e.target.value; presetId=''; syncCtrls(); recompute(true);});
+  $('play').onclick=()=>{ if(!playing&&k>=N-1)k=0; playing=!playing; $('play').textContent=playing?'⏸ 일시정지':'▶ 재생'; last=0;};
+  $('reset').onclick=()=>{k=0;stop();draw();};
+  $('stepf').onclick=()=>{stop();k=Math.min(N-1,k+1);draw();};
+  $('stepb').onclick=()=>{stop();k=Math.max(0,k-1);draw();};
+  $('slider').oninput=e=>{stop();k=+e.target.value;draw();};
+  $('timeline').onclick=e=>{const r=e.currentTarget.getBoundingClientRect();stop();k=Math.round((e.clientX-r.left)/r.width*(N-1));k=Math.max(0,Math.min(N-1,k));draw();};
+  syncCtrls();
+}
+function stop(){playing=false;$('play').textContent='▶ 재생';}
+function syncCtrls(){
+  PARAMS.forEach(q=>{ $('r_'+q.k).value=P[q.k]; $('v_'+q.k).textContent=q.fmt?q.fmt(P[q.k]):P[q.k]+q.unit; });
+  document.querySelectorAll('.preset').forEach(b=>b.classList.toggle('on',b.dataset.id===presetId));
+  const pr=PRESETS.find(x=>x.id===presetId);
+  $('presetDesc').textContent=pr?pr.desc:'직접 조절한 사용자 설정입니다.';
+}
+function recompute(reset){
+  sim=simulate(P); if(reset){k=0;stop();}
+  buildTimeline(); buildLog(); draw();
+}
+function buildTimeline(){
+  const tl=$('timeline'); tl.querySelectorAll('.seg').forEach(n=>n.remove());
+  let i=0;
+  while(i<N){ let j=i; while(j+1<N&&sim[j+1].stage===sim[i].stage)j++;
+    const d=document.createElement('div'); d.className='seg';
+    d.style.flex=(j-i+1); d.style.background=`var(${STAGES[sim[i].stage].color})`;
+    d.textContent=(j-i+1>=4)?sim[i].stage+'단계':''; d.title=STAGES[sim[i].stage].name;
+    tl.insertBefore(d,$('cursor')); i=j+1; }
+}
+function buildLog(){
+  const items=[]; let prev=0;
+  sim.forEach(s=>{ if(s.stage!==prev){ items.push(`<li><b>${s.t}년</b> — ${STAGES[s.stage].name} 진입 (출생률 ${s.cbr.toFixed(1)}‰, 사망률 ${s.cdr.toFixed(1)}‰)</li>`); prev=s.stage; }});
+  $('log').innerHTML=items.join('');
+}
+
+/* ---------- 그리기 ---------- */
+function setup(c){const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*d;c.height=h*d;const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);x.font='11px system-ui,sans-serif';return {x,w,h};}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function axes(x,w,h,m,ymax,ylabel,yfmt){
+  x.strokeStyle=css('--line');x.fillStyle=css('--mute');x.lineWidth=1;x.textAlign='right';
+  for(let i=0;i<=4;i++){const y=m.t+(h-m.t-m.b)*(1-i/4);x.beginPath();x.moveTo(m.l,y);x.lineTo(w-m.r,y);x.stroke();x.fillText(yfmt(ymax*i/4),m.l-4,y+3);}
+  x.textAlign='center';
+  for(let t=0;t<=300;t+=50){const px=m.l+(w-m.l-m.r)*t/300;x.fillText(t+'',px,h-m.b+14);}
+  x.fillText('경과 연수(년)',(m.l+w-m.r)/2,h-4);
+}
+function drawRates(){
+  const {x,w,h}=setup($('cRates')),m={l:34,r:10,t:10,b:32},ymax=48;
+  axes(x,w,h,m,ymax,'‰',v=>v.toFixed(0));
+  const X=i=>m.l+(w-m.l-m.r)*i/(N-1), Y=v=>m.t+(h-m.t-m.b)*(1-v/ymax);
+  x.beginPath();sim.forEach((s,i)=>i?x.lineTo(X(i),Y(s.cbr)):x.moveTo(X(i),Y(s.cbr)));
+  for(let i=N-1;i>=0;i--)x.lineTo(X(i),Y(sim[i].cdr));x.closePath();x.fillStyle='rgba(79,70,229,.13)';x.fill();
+  [['cbr','--birth'],['cdr','--death']].forEach(([f,c])=>{x.beginPath();sim.forEach((s,i)=>i?x.lineTo(X(i),Y(s[f])):x.moveTo(X(i),Y(s[f])));x.strokeStyle=css(c);x.lineWidth=2.5;x.stroke();});
+  marker(x,X(k),m,h,[[Y(sim[k].cbr),'--birth'],[Y(sim[k].cdr),'--death']]);
+}
+function drawPop(){
+  const {x,w,h}=setup($('cPop')),m={l:40,r:10,t:10,b:32};
+  const mx=Math.max(120,Math.ceil(Math.max(...sim.map(s=>s.total))/50)*50);
+  axes(x,w,h,m,mx,'',v=>v.toFixed(0));
+  const X=i=>m.l+(w-m.l-m.r)*i/(N-1), Y=v=>m.t+(h-m.t-m.b)*(1-v/mx);
+  x.beginPath();sim.forEach((s,i)=>i?x.lineTo(X(i),Y(s.total)):x.moveTo(X(i),Y(s.total)));x.strokeStyle=css('--pop');x.lineWidth=2.5;x.stroke();
+  marker(x,X(k),m,h,[[Y(sim[k].total),'--pop']]);
+}
+function marker(x,px,m,h,dots){
+  x.strokeStyle='#111';x.lineWidth=1;x.setLineDash([4,3]);x.beginPath();x.moveTo(px,m.t);x.lineTo(px,h-m.b);x.stroke();x.setLineDash([]);
+  dots.forEach(([y,c])=>{x.fillStyle=css(c);x.beginPath();x.arc(px,y,4.5,0,7);x.fill();x.strokeStyle='#fff';x.stroke();});
+}
+function drawPyr(){
+  const {x,w,h}=setup($('cPyr')), s=sim[k], tot=s.pop.reduce((a,b)=>a+b,0);
+  const pc=s.pop.map(v=>v/tot*100/2), mx=Math.max(8,Math.ceil(Math.max(...pc))), cx=w/2, bh=(h-24)/AG, sc=(w/2-34)/mx;
+  x.fillStyle=css('--mute');x.textAlign='center';
+  for(let g=0;g<AG;g++){
+    const y=h-24-(g+1)*bh, wd=pc[g]*sc;
+    x.fillStyle=g<3?'#f59e0b':g>=13?'#8b5cf6':'#3b82f6';
+    x.fillRect(cx-wd,y+1,wd,bh-2);x.fillRect(cx,y+1,wd,bh-2);
+    if(g%4===0){x.fillStyle=css('--mute');x.textAlign='left';x.fillText(g*5+'세',4,y+bh-3);}
+  }
+  x.fillStyle=css('--mute');x.textAlign='center';
+  x.fillText('0~14세(주황) · 15~64세(파랑) · 65세 이상(보라)',cx,h-6);
+}
+function draw(){
+  const s=sim[k], st=STAGES[s.stage];
+  $('slider').value=k; $('yr').textContent=s.t+'년';
+  $('cursor').style.left=(k/(N-1)*100)+'%';
+  $('stageCard').innerHTML=`<h3 style="background:var(${st.color});display:inline-block;padding:2px 10px;border-radius:6px">${st.name}</h3>
+    <ul>${st.feat.map(f=>`<li>${f}</li>`).join('')}<li><b>원인:</b> ${st.cause}</li><li><b>사례:</b> ${st.ex}</li></ul>`;
+  const f=(v,u,d=1)=>v.toFixed(d)+u;
+  $('stats').innerHTML=[['경과',s.t+'년'],['조출생률',f(s.cbr,'‰')],['조사망률',f(s.cdr,'‰')],['자연 증가율',f(s.ni,'‰')],
+    ['상대 인구',f(s.total,'',0)],['0~14세 비율',f(s.young*100,'%',0)],['65세 이상 비율',f(s.old*100,'%',0)]]
+    .map(([a,b])=>`<div class="stat"><span>${a}</span><b>${b}</b></div>`).join('');
+  drawRates();drawPop();drawPyr();
+}
+function loop(ts){
+  if(playing){
+    if(!last)last=ts; acc+=(ts-last)/1000*($('speed').value*4); last=ts;
+    while(acc>=1){acc-=1;if(k<N-1)k++;else{stop();break;}}
+    draw();
+  }
+  requestAnimationFrame(loop);
+}
+buildUI(); recompute(true);
+addEventListener('resize',draw);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
